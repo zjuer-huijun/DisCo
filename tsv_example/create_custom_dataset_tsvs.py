@@ -12,6 +12,7 @@ from PIL import Image
 import json, cv2, math, yaml
 import numpy as np
 import argparse
+from joblib import load
 
 def write_to_yaml_file(context, file_name):
     with open(file_name, 'w') as fp:
@@ -46,33 +47,86 @@ def get_frm_list(args):
         all_frm_paths += load_frame_paths(vid)
     return all_frm_paths
 
+def load_image_paths(image_folder):
+    frm_list = os.listdir(image_folder)
+    frame_paths = [ image_folder + '/' + frm_name for frm_name in frm_list if frm_name.endswith(".png") or frm_name.endswith(".jpg")]
+    frame_paths.sort()
+    return frame_paths
+
+def load_pkl_paths(image_folder):
+    frm_list = os.listdir(image_folder)
+    frame_paths = [ image_folder + '/' + frm_name for frm_name in frm_list if frm_name.endswith(".pkl")]
+    frame_paths.sort()
+    return frame_paths
 
 def main(args):
     split = args.split 
-    image_path_list = get_frm_list(args)
+    
+    image_path_list = load_image_paths(os.path.join(args.root_folder,'image'))
+    cloth_path_list = load_image_paths(os.path.join(args.root_folder,'cloth'))
+    image_mask_path_list = load_image_paths(os.path.join(args.root_folder,'image-parse'))
+    cloth_mask_path_list = load_image_paths(os.path.join(args.root_folder,'cloth-mask'))
+    smpl_img_path_list = load_image_paths(os.path.join(args.root_folder,'smpl'))
+    smpl_pkl_path_list = load_pkl_paths(os.path.join(args.root_folder,'smpl'))
 
-    if args.debug:
-        image_path_list = image_path_list[:10]
+
+    # if args.debug:
+    #     image_path_list = image_path_list[:10]
 
     ###############################################################################
-    # process images.tsv
-    print('generating images.tsv')
+    # process img.tsv
+    if args.img:
+        print('generating img.tsv')
     def gen_row(image_path_list):
         for i, image_path in enumerate(image_path_list):
             if i % 100 == 0:
                 print(f"{i}/{len(image_path_list)}")
             image_name = image_path.split("/")[-1]
-            video_key = image_path.split("/")[-2]
-            image_key = f"Custom_{video_key}_{image_name}"
             image = load_image(image_path)
             if image is None:
                 print(f"image does not exists: {image_path}")
                 continue
-            row = [image_key, encoded_from_img(image)]
+            row = [image_name, encoded_from_img(image)]
             yield(row)
-    tsv_writer(gen_row(image_path_list), f"{args.output_folder}/{split}_images.tsv")
+    if args.img:
+        tsv_writer(gen_row(image_path_list), f"{args.output_folder}/{split}_img.tsv")
+    ###############################################################################
+    # process cloth.tsv
+    if args.cloth:
+        print('generating cloth.tsv')
+    def gen_row(image_path_list):
+        for i, image_path in enumerate(image_path_list):
+            if i % 100 == 0:
+                print(f"{i}/{len(image_path_list)}")
+            image_name = image_path.split("/")[-1]
+            image = load_image(image_path)
+            if image is None:
+                print(f"image does not exists: {image_path}")
+                continue
+            row = [image_name, encoded_from_img(image)]
+            yield(row)
+    if args.cloth:
+        tsv_writer(gen_row(cloth_path_list), f"{args.output_folder}/{split}_cloth.tsv")
 
     ###############################################################################
+    # process smpl.tsv
+    if args.smpl:
+        print('generating smpl.tsv')
+    def gen_row(image_path_list):
+        for i, image_path in enumerate(image_path_list):
+            if i % 100 == 0:
+                print(f"{i}/{len(image_path_list)}")
+            image_name = image_path.split("/")[-1]
+            image = load_image(image_path)
+            if image is None:
+                print(f"image does not exists: {image_path}")
+                continue
+            row = [image_name, encoded_from_img(image)]
+            yield(row)
+    if args.smpl:
+        tsv_writer(gen_row(smpl_img_path_list), f"{args.output_folder}/{split}_smpl.tsv")
+    ###############################################################################
+    '''
     # process vid2line.tsv
     print('generating vid2line.tsv')
     video2line = defaultdict(list)
@@ -95,10 +149,11 @@ def main(args):
             row = [image_key, vid2st_ed_line[video_key]]
             yield(row)
     tsv_writer(gen_vis2line_row(image_path_list), f"{args.output_folder}/{split}_vid2line.tsv")
-
+    
     ###############################################################################
     # process pose.tsv
-    print('generating poses.tsv')
+    if args.pose:
+        print('generating poses.tsv')
     # draw the body keypoint and lims
     def draw_bodypose(canvas, coco_keypoints):
         pose = [
@@ -191,23 +246,67 @@ def main(args):
             pose_image = draw_bodypose(image, pose_without_visibletag)
             row = [image_key, encoded_from_img(pose_image)]
             yield(row)
-
-    tsv_writer(gen_row_pose(image_path_list), f"{args.output_folder}/{split}_poses.tsv")
-
+    if args.pose:
+        tsv_writer(gen_row_pose(image_path_list), f"{args.output_folder}/{split}_poses.tsv")
+    '''
     ###############################################################################
     # process mask.tsv
-    print('generating masks.tsv')
+    if args.cloth_mask:
+        print('generating cloth_mask.tsv')
+    def gen_row_mask(image_path_list):
+        for i, image_path in enumerate(image_path_list):
+            if i % 100 == 0:
+                print(f"{i}/{len(image_path_list)}")
+            image_name = image_path.split("/")[-1]
+            try:
+                if os.path.exists(image_path):
+                    mask_image = load_image(image_path)
+                    # img = np.asarray(img)
+                    # bk = img[:,:,:]==[68,0,83]
+                    # fg = (bk==False)
+                    # fg = fg*255.0
+                    # mask = fg.astype(np.uint8)
+                    # ipl_mask = Image.fromarray(mask)
+                else:
+                    mask_image = None
+            except Exception as e: 
+                print(e)
+                mask_image = None
+            valid = True
+            if mask_image is None:
+                valid = False
+            row = [image_name, encoded_from_img(mask_image), valid]
+            yield(row)
+    if args.cloth_mask:
+        tsv_writer(gen_row_mask(cloth_mask_path_list), f"{args.output_folder}/{split}_cloth_mask.tsv")
+    ###############################################################################
+    # process img_mask.tsv
+    if args.img_mask:
+        print('generating img_mask.tsv')
     def load_groundedsam_mask(path):
         # print(path)
         try:
             if os.path.exists(path):
                 img = load_image(path)
                 img = np.asarray(img)
-                bk = img[:,:,:]==[68,0,83]
-                fg = (bk==False)
-                fg = fg*255.0
-                mask = fg.astype(np.uint8)
-                ipl_mask = Image.fromarray(mask)
+                # 获取图片的宽度和高度
+                height, width, _ = img.shape
+
+                # 遍历每个像素点
+                for y in range(height):
+                    for x in range(width):
+                        # 获取像素点的 RGB 值
+                        pixel = img[y, x]
+
+                        # 检查是否为黑色像素
+                        if np.all(pixel == [0, 0, 0]):
+                            # 将非黑色像素变为白色
+                            img[y, x] = [255, 255, 255]
+                # bk = img[:,:,:]==[68,0,83]
+                # fg = (bk==False)
+                # fg = fg*255.0
+                # mask = fg.astype(np.uint8)
+                ipl_mask = Image.fromarray(img)
             else:
                 ipl_mask = None
 
@@ -222,30 +321,69 @@ def main(args):
             if i % 100 == 0:
                 print(f"{i}/{len(image_path_list)}")
             image_name = image_path.split("/")[-1]
-            video_key = image_path.split("/")[-2]
-            image_key = f"Custom_{video_key}_{image_name}"
-            image = load_image(image_path)
-            if image is None:
-                print(f"image does not exists: {image_path}")
-                continue
-            anno_mask_path = "{}/groundsam/{}.mask.jpg".format(('/').join(image_path.split("/")[0:-1]),image_name)
-            mask_image = load_groundedsam_mask(anno_mask_path)
-            mask_image = mask_image.resize(image.size)
+            try:
+                if os.path.exists(image_path):
+                    img = load_image(image_path)
+                    img = np.asarray(img)
+                    # 获取图片的宽度和高度
+                    height, width, _ = img.shape
+
+                    # 遍历每个像素点
+                    for y in range(height):
+                        for x in range(width):
+                            # 获取像素点的 RGB 值
+                            pixel = img[y, x]
+
+                            # 检查是否为黑色像素
+                            if np.all(pixel == [0, 0, 0]):
+                                # 将非黑色像素变为白色
+                                img[y, x] = [255, 255, 255]
+                    # bk = img[:,:,:]==[68,0,83]
+                    # fg = (bk==False)
+                    # fg = fg*255.0
+                    # mask = fg.astype(np.uint8)
+                    mask_image = Image.fromarray(img)
+                else:
+                    mask_image = None
+
+            except Exception as e: 
+                print(e)
+                mask_image = None
 
             valid = True
             if mask_image is None:
                 valid = False
-                mask_image = np.zeros_like(image)
        
-            row = [image_key, encoded_from_img(mask_image), valid]
+            row = [image_name, encoded_from_img(mask_image), valid]
             yield(row)
-
-    tsv_writer(gen_row_mask(image_path_list), f"{args.output_folder}/{split}_masks.tsv")
-
+    if args.img_mask:
+        tsv_writer(gen_row_mask(image_mask_path_list), f"{args.output_folder}/{split}_img_mask.tsv")
+    
     ###############################################################################
+    
+    # process vid2line.tsv
+    print('generating shape.tsv')
+    
+    def gen_vis2line_row(image_path_list):
+        for i, image_path in enumerate(image_path_list):
+            if i % 100 == 0:
+                print(f"{i}/{len(image_path_list)}")
+            image_name = image_path.split("/")[-1]
+            # image = load_image(f"./tiktok_datasets/{image_path}")
+            # if image is None:
+            #     print(f"image does not exists: {image_path}")
+            #     continue
+            output = load(image_path)
+            shape = list(output['pred_shape'].squeeze())
+            row = [image_name, shape]
+            yield(row)
+    tsv_writer(gen_vis2line_row(smpl_pkl_path_list), f"{args.output_folder}/{split}_shape.tsv")
+    
+    ###############################################################################
+    
     # process yaml file
 
-    all_field = ['img', 'masks', 'poses', 'vid2line']
+    all_field = ['img', 'masks', ]
     out_cfg = {'composite': False}
 
     for field in all_field:
@@ -254,17 +392,35 @@ def main(args):
 
     write_to_yaml_file(out_cfg, os.path.join(args.output_folder, args.split + '.yaml'))
 
+def str_to_bool(value):
+    if value.lower() in {'false', 'f', '0', 'no', 'n'}:
+        return False
+    elif value.lower() in {'true', 't', '1', 'yes', 'y'}:
+        return True
+    raise ValueError(f'{value} is not a valid boolean value')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--root_folder",
-                        type=str, default='./tiktok_datasets')
+                        type=str, default='./HOME/HOME/jisihui/VITON/test')
     parser.add_argument("--output_folder",
                         type=str, default='./blob_dir/debug_output/video_sythesis/dataset')
     parser.add_argument("--split",
                         type=str, default='train')
     parser.add_argument("--debug",
                         type=bool, default=False)
+    parser.add_argument('--cloth',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
+    parser.add_argument('--cloth_mask',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
+    parser.add_argument('--img',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
+    parser.add_argument('--img_mask',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
+    parser.add_argument('--shape',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
+    parser.add_argument('--smpl',  type=str_to_bool,
+                            nargs='?', const=True, default=False)
     args = parser.parse_args()
     main(args)
